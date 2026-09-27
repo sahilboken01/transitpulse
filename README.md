@@ -1,145 +1,201 @@
 # TransitPulse
 
-TransitPulse is a real-time public transportation intelligence platform that processes simulated bus telemetry through Kafka, performs stream processing, stores historical data in PostgreSQL, exposes analytics through FastAPI, and visualizes live transit conditions through a web dashboard.
+Real-time public transportation intelligence platform built around streaming bus telemetry, geospatial event detection, and operational analytics.
+
+TransitPulse simulates a fleet of buses, streams GPS events through Apache Kafka, processes them in Python, persists operational history in PostgreSQL, exposes analytics through FastAPI, and visualizes the fleet through a browser dashboard.
+
+## Why this project?
+
+Transit systems generate continuous location data, but raw GPS events are not useful on their own. TransitPulse turns that stream into operational signals:
+
+- Current fleet status
+- Route-level speed and congestion
+- Stop arrival and delay detection
+- Historical event analytics
+- Database-backed operational alerts
 
 ## Architecture
 
 ```text
-Python simulator
-      │ GPS events on bus-events
-      ▼
-    Kafka
-      │
-      ▼
-Python processor ── bus status and stop arrival/delay detection
-      │
-      ▼
-PostgreSQL ── bus_events and stop_arrivals
-      │
-      ▼
-FastAPI ── current state and analytics endpoints
-      │
-      ▼
-Plain HTML/CSS/JavaScript dashboard ── Leaflet/OpenStreetMap
+                 ┌──────────────────┐
+                 │ Python Simulator │
+                 │ 100 bus fleet    │
+                 └────────┬─────────┘
+                          │ GPS events
+                          ▼
+                 ┌──────────────────┐
+                 │ Apache Kafka     │
+                 │ bus-events topic │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ Python Processor │
+                 │ status + arrival │
+                 │ + delay logic    │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ PostgreSQL       │
+                 │ events + arrivals│
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ FastAPI          │
+                 │ analytics APIs   │
+                 └────────┬─────────┘
+                          │
+                          ▼
+                 ┌──────────────────┐
+                 │ Web Dashboard    │
+                 │ Leaflet + JS     │
+                 └──────────────────┘
 ```
 
-## Technology stack
+## Core capabilities
 
-- Python for the simulator, stream processor, and API
-- Apache Kafka 4.0 and PostgreSQL 16 through Docker Compose
-- FastAPI and Uvicorn
-- psycopg2 for PostgreSQL access
-- kafka-python for Kafka producer/consumer access
-- A small standard-library helper for loading local `.env` settings
-- Plain HTML, CSS, and JavaScript for the dashboard
-- Leaflet and OpenStreetMap for map display
+### Streaming pipeline
+- Simulated telemetry for 100 buses
+- Kafka `bus-events` topic
+- Python producer/consumer workflow
+- PostgreSQL persistence for historical events
 
-## Features
+### Transit intelligence
+- Speed-based Normal / Slow / Critical classification
+- Haversine-distance arrival detection
+- Schedule-relative delay calculation
+- Route-level congestion analytics
+- Operational alerts for critical conditions and large delays
 
-- 100 buses with deterministic route assignment and GPS movement between configured stops
-- Kafka `bus-events` telemetry and historical PostgreSQL storage
-- Speed-based Normal/Slow/Critical bus status
-- Haversine-based arrival detection and schedule-relative delay records
-- Route speed and event analytics, rule-based congestion levels, and delay summaries
-- Database-backed operational alerts
-- Live Leaflet map, fleet table, route/status filters, and automatically refreshed analytics
+### Dashboard
+- Live fleet map using Leaflet/OpenStreetMap
+- Bus status table
+- Route and status filters
+- Automatically refreshed analytics
+- Route speed, congestion, and delay summaries
 
-## Local setup
+## API
 
-Use PowerShell from the project directory. Python, Docker Desktop, and Docker Compose must be installed.
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/` | API health response |
+| GET | `/buses` | Latest state for each bus |
+| GET | `/arrivals` | Recent stop arrivals |
+| GET | `/analytics/routes` | Route speed and event statistics |
+| GET | `/analytics/congestion` | Route congestion analysis |
+| GET | `/analytics/delays` | Route delay statistics |
+| GET | `/analytics/summary` | Fleet-wide operational summary |
+| GET | `/alerts` | Current operational alerts |
 
-Create and activate a virtual environment, then install the project dependencies:
+Interactive API documentation is available through FastAPI's generated Swagger UI.
+
+## Tech stack
+
+**Backend**
+- Python
+- FastAPI
+- Uvicorn
+- kafka-python
+- psycopg2
+
+**Data & streaming**
+- Apache Kafka 4.0
+- PostgreSQL 16
+- Docker Compose
+
+**Frontend**
+- HTML
+- CSS
+- JavaScript
+- Leaflet
+- OpenStreetMap
+
+## Local development
+
+### Prerequisites
+
+- Python
+- Docker Desktop
+- Docker Compose
+
+### 1. Install dependencies
 
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\\.venv\\Scripts\\Activate.ps1
 python -m pip install -r requirements.txt
 ```
 
-Create a local environment file from the template:
+### 2. Configure environment
 
 ```powershell
 if (-not (Test-Path .env)) { Copy-Item .env.example .env }
 ```
 
-`.env` is ignored by Git. The values in `.env.example` are for local development only. Use deployment environment variables or a secret manager for deployed environments. The Python API and processor require `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD`.
+Configure the required PostgreSQL variables in `.env`.
 
-## Start Kafka and PostgreSQL
-
-The Compose file reads the PostgreSQL user, password, database, and host port from `.env`.
+### 3. Start infrastructure
 
 ```powershell
 docker compose up -d
 docker compose ps
 ```
 
-Create the Kafka topic once:
+Create the Kafka topic if it does not already exist:
 
 ```powershell
 docker exec transitpulse-kafka /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --topic bus-events --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
 ```
 
-## Run the application
+### 4. Run the services
 
-Run one instance of each process in its own terminal, from the project directory with the virtual environment activated. Do not start duplicate simulators or processors.
-
-### Simulator
+Start each process in a separate terminal:
 
 ```powershell
 python simulator.py
 ```
 
-### Processor
-
 ```powershell
 python processor.py
 ```
-
-The processor creates `bus_events`, `stop_arrivals`, and the supporting indexes when needed. Indexes use `CREATE INDEX IF NOT EXISTS`; existing records are preserved.
-
-### FastAPI
 
 ```powershell
 python -m uvicorn api:app --reload --host 127.0.0.1 --port 8000
 ```
 
-API documentation: `http://127.0.0.1:8000/docs`.
-
-### Dashboard
+Serve the dashboard:
 
 ```powershell
 python -m http.server 5500 --directory dashboard
 ```
 
-Open `http://127.0.0.1:5500`. The dashboard uses the API on port 8000. FastAPI allows local `localhost` and `127.0.0.1` browser origins for this development setup. Leaflet and OpenStreetMap map tiles require internet access.
+Open the dashboard at `http://127.0.0.1:5500`.
 
-## API endpoints
+FastAPI docs: `http://127.0.0.1:8000/docs`
 
-| Method | Endpoint | Description |
-| --- | --- | --- |
-| GET | `/` | API health response |
-| GET | `/buses` | Latest event/state for each bus |
-| GET | `/arrivals` | Up to 100 recent stop arrivals |
-| GET | `/analytics/routes` | Average speed and total GPS event count by route |
-| GET | `/analytics/congestion` | Route average speed, congestion level, and event count |
-| GET | `/analytics/delays` | Arrival count, average/maximum delay, and early/on-time/late counts by route |
-| GET | `/analytics/summary` | Latest bus status totals, congested buses, and total historical events |
-| GET | `/alerts` | Current critical/low-speed/congested-route and large-delay alerts |
+## Database model
 
-Database-backed API endpoints return HTTP 503 if PostgreSQL is unavailable; database credentials are not sent to the browser.
+### `bus_events`
+Stores GPS telemetry, route, speed, coordinates, derived status, and event timestamp.
 
-## Database
+### `stop_arrivals`
+Stores bus/route/stop information, expected and actual arrival times, calculated delay, and timestamps.
 
-- `bus_events` stores GPS events, route, speed, coordinates, derived status, and event timestamp.
-- `stop_arrivals` stores bus/route/stop, expected and actual arrival, delay seconds, and timestamp.
-- The processor creates indexes for latest bus lookup, route event lookup, and recent arrival lookup.
+Indexes are created for common fleet, route, and recent-arrival queries.
 
-## Screenshots
+## Engineering notes
 
-_Add a dashboard screenshot here._
+- PostgreSQL credentials are kept outside source control.
+- Database failures are surfaced by the API with HTTP 503 responses.
+- The current Docker Compose setup is intended for local development.
+- The simulator uses deterministic route assignment to make local testing reproducible.
 
-## Deployment
+## Project status
 
-_Deployment placeholder: select a hosting target, provide database/Kafka services, configure environment variables through the host's secret manager, and serve the dashboard over HTTPS._
+This repository is a working local-development implementation. Production deployment would require managed Kafka/PostgreSQL infrastructure, secret management, HTTPS, monitoring, and containerized application services.
 
-Do not commit `.env` or put production credentials in source control. The current Compose setup is for local development; the Python processes connect to PostgreSQL through `DB_HOST` and `DB_PORT` and are not containerized by this Compose file.
+## License
+
+No license is currently specified.
